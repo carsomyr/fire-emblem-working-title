@@ -15,3 +15,6 @@ const growthPointTable = {
 
 export const baseStatToMaxStat = (rarity, baseStat, growthPoints) =>
   baseStat + growthPointTable[rarity][growthPoints];
+
+export const maxStatToBaseStat = (rarity, maxStat, growthPoints) =>
+  maxStat - growthPointTable[rarity][growthPoints];

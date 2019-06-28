@@ -19,7 +19,7 @@ import {
   without,
 } from 'ramda';
 
-import { baseStatToMaxStat } from './statGrowth';
+import { baseStatToMaxStat, maxStatToBaseStat } from './statGrowth';
 import { fetchApiRows } from './fetch';
 import { CDN_HOST } from './constants';
 
@@ -60,31 +60,51 @@ const skillCategoriesToOrdinals = {
 
 // Fetches heroes and their stats/skills
 async function fetchHeroStats() {
-  const heroBaseStats = await fetchApiRows({
+  const heroMaxStats = await fetchApiRows({
     action: 'cargoquery',
     format: 'json',
-    tables: 'HeroBaseStats,Heroes',
-    fields:
-      'Heroes._pageName=Name,HeroBaseStats.Variation,HeroBaseStats.Rarity,HP,Atk,Spd,Def,Res',
-    where: 'HeroBaseStats.Variation="Neut"',
-    join_on: 'HeroBaseStats._pageName = Heroes._pageName',
+    tables: 'HeroStats,HeroMaxStats,Heroes',
+    fields: [
+      'Heroes._pageName=Name',
+      'HeroMaxStats.Variation',
+      'HeroMaxStats.Rarity',
+      'HP',
+      'Atk',
+      'Spd',
+      'Def',
+      'Res',
+    ].join(","),
+    where: 'HeroMaxStats.Variation="Neut"',
+    join_on: [
+      'HeroStats._pageName=HeroMaxStats._pageName',
+      'HeroStats._pageName=Heroes._pageName',
+    ].join(",")
   }).then(
     compose(
-      map(({ Name, Rarity, HP, Atk, Spd, Def, Res }) => ({
-        name: Name,
-        rarity: Number.parseInt(Rarity, 10),
-        hp: Number.parseInt(HP, 10),
-        atk: Number.parseInt(Atk, 10),
-        spd: Number.parseInt(Spd, 10),
-        def: Number.parseInt(Def, 10),
-        res: Number.parseInt(Res, 10),
+      map(
+        ({
+          Name,
+          Rarity,
+          HP,
+          Atk,
+          Spd,
+          Def,
+          Res
+        }) => ({
+          name: Name,
+          rarity: Number.parseInt(Rarity, 10),
+          hp: Number.parseInt(HP, 10),
+          atk: Number.parseInt(Atk, 10),
+          spd: Number.parseInt(Spd, 10),
+          def: Number.parseInt(Def, 10),
+          res: Number.parseInt(Res, 10),
       })),
     ),
   );
 
-  const heroBaseStatsByNameAndRarity = indexBy(
+  const heroMaxStatsByNameAndRarity = indexBy(
     ({ name, rarity }) => `${name}-${rarity}`,
-    heroBaseStats,
+    heroMaxStats,
   );
 
   const heroSkills = await fetchApiRows({
@@ -147,8 +167,7 @@ async function fetchHeroStats() {
     format: 'json',
     tables: [
       'Heroes',
-      'HeroBaseStats',
-      'HeroGrowths',
+      'HeroStats',
     ].join(','),
     fields: [
       'Heroes._pageName=FullName',
@@ -161,16 +180,15 @@ async function fetchHeroStats() {
       'RewardRarities',
       'ReleaseDate',
       'PoolDate',
-      'HeroGrowths.HP',
-      'HeroGrowths.Atk',
-      'HeroGrowths.Spd',
-      'HeroGrowths.Def',
-      'HeroGrowths.Res',
+      'HeroStats.HPGR3',
+      'HeroStats.AtkGR3',
+      'HeroStats.SpdGR3',
+      'HeroStats.DefGR3',
+      'HeroStats.ResGR3',
     ].join(','),
     group_by: 'Heroes._pageName',
     join_on: [
-      'HeroBaseStats._pageName = Heroes._pageName',
-      'Heroes._pageName = HeroGrowths._pageName',
+      'HeroStats._pageName=Heroes._pageName',
     ].join(','),
   })
     .then(
@@ -188,11 +206,11 @@ async function fetchHeroStats() {
             ReleaseDate,
             PoolDate,
 
-            HP: hpGrowths,
-            Atk: atkGrowths,
-            Spd: spdGrowths,
-            Def: defGrowths,
-            Res: resGrowths,
+            HPGR3: hpGrowths,
+            AtkGR3: atkGrowths,
+            SpdGR3: spdGrowths,
+            DefGR3: defGrowths,
+            ResGR3: resGrowths,
           }) => {
             const enumerateRarities: (
               rarityString: string,
@@ -254,7 +272,35 @@ async function fetchHeroStats() {
                 stats['1'][rarity] = compose(
                   map(value => Number.parseInt(value, 10)),
                   pick(['hp', 'atk', 'spd', 'def', 'res']),
-                )(heroBaseStatsByNameAndRarity[`${FullName}-${rarity}`]);
+                )(heroMaxStatsByNameAndRarity[`${FullName}-${rarity}`]);
+
+                stats['1'][rarity] = {
+                  hp: maxStatToBaseStat(
+                      rarity,
+                      stats['1'][rarity].hp,
+                      Number.parseInt(hpGrowths, 10) / 5
+                  ),
+                  atk: maxStatToBaseStat(
+                      rarity,
+                      stats['1'][rarity].atk,
+                      Number.parseInt(atkGrowths, 10) / 5
+                  ),
+                  spd: maxStatToBaseStat(
+                      rarity,
+                      stats['1'][rarity].spd,
+                      Number.parseInt(spdGrowths, 10) / 5
+                  ),
+                  def: maxStatToBaseStat(
+                      rarity,
+                      stats['1'][rarity].def,
+                      Number.parseInt(defGrowths, 10) / 5
+                  ),
+                  res: maxStatToBaseStat(
+                      rarity,
+                      stats['1'][rarity].res,
+                      Number.parseInt(resGrowths, 10) / 5
+                  ),
+                };
 
                 stats['40'][rarity] = {
                   hp: [
