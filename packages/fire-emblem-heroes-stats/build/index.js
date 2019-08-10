@@ -3,12 +3,9 @@ import {
   ascend,
   compose,
   dissoc,
-  equals,
-  filter,
   groupBy,
   indexBy,
   map,
-  not,
   pick,
   prop,
   range,
@@ -19,7 +16,7 @@ import {
   without,
 } from 'ramda';
 
-import { baseStatToMaxStat, maxStatToBaseStat } from './statGrowth';
+import { baseStatToMaxStat, maxStatToBaseStat, baseStatsForRarity } from './statGrowth';
 import { fetchApiRows } from './fetch';
 import { CDN_HOST } from './constants';
 
@@ -60,73 +57,26 @@ const skillCategoriesToOrdinals = {
 
 // Fetches heroes and their stats/skills
 async function fetchHeroStats() {
-  const heroMaxStats = await fetchApiRows({
-    action: 'cargoquery',
-    format: 'json',
-    tables: 'HeroStats,HeroMaxStats,Heroes',
-    fields: [
-      'Heroes._pageName=Name',
-      'HeroMaxStats.Variation',
-      'HeroMaxStats.Rarity',
-      'HP',
-      'Atk',
-      'Spd',
-      'Def',
-      'Res',
-    ].join(","),
-    where: 'HeroMaxStats.Variation="Neut"',
-    join_on: [
-      'HeroStats._pageName=HeroMaxStats._pageName',
-      'HeroStats._pageName=Heroes._pageName',
-    ].join(",")
-  }).then(
-    compose(
-      map(
-        ({
-          Name,
-          Rarity,
-          HP,
-          Atk,
-          Spd,
-          Def,
-          Res
-        }) => ({
-          name: Name,
-          rarity: Number.parseInt(Rarity, 10),
-          hp: Number.parseInt(HP, 10),
-          atk: Number.parseInt(Atk, 10),
-          spd: Number.parseInt(Spd, 10),
-          def: Number.parseInt(Def, 10),
-          res: Number.parseInt(Res, 10),
-      })),
-    ),
-  );
-
-  const heroMaxStatsByNameAndRarity = indexBy(
-    ({ name, rarity }) => `${name}-${rarity}`,
-    heroMaxStats,
-  );
-
   const heroSkills = await fetchApiRows({
     action: 'cargoquery',
     format: 'json',
     tables: [
-      'Heroes',
-      'HeroSkills',
+      'Units',
+      'UnitSkills',
       'Skills',
     ].join(','),
     fields: [
-      'Heroes._pageName=HeroFullName',
-      'HeroSkills.skill=WikiName',
-      'HeroSkills.skillPos=SkillPos',
-      'HeroSkills.unlockRarity=UnlockRarity',
-      'HeroSkills.defaultRarity=DefaultRarity',
+      'Units._pageName=HeroFullName',
+      'UnitSkills.skill=WikiName',
+      'UnitSkills.skillPos=SkillPos',
+      'UnitSkills.unlockRarity=UnlockRarity',
+      'UnitSkills.defaultRarity=DefaultRarity',
       'Skills.Scategory=Category',
     ].join(','),
     join_on: [
-      'Heroes._pageName=HeroSkills._pageName',
-      'HeroSkills.skill=Skills.WikiName',
-    ].join(',')
+      'Units._pageName=UnitSkills._pageName',
+      'UnitSkills.skill=Skills.WikiName',
+    ].join(','),
   }).then(
       compose(
           map(
@@ -166,29 +116,31 @@ async function fetchHeroStats() {
     action: 'cargoquery',
     format: 'json',
     tables: [
-      'Heroes',
-      'HeroStats',
+      'Units',
+      'UnitStats',
     ].join(','),
     fields: [
-      'Heroes._pageName=FullName',
+      'Units._pageName=FullName',
       'Name',
       'Title',
       'Origin',
       'WeaponType',
       'MoveType',
-      'SummonRarities',
-      'RewardRarities',
       'ReleaseDate',
-      'PoolDate',
-      'HeroStats.HPGR3',
-      'HeroStats.AtkGR3',
-      'HeroStats.SpdGR3',
-      'HeroStats.DefGR3',
-      'HeroStats.ResGR3',
+      'UnitStats.Lv1HP5',
+      'UnitStats.Lv1Atk5',
+      'UnitStats.Lv1Spd5',
+      'UnitStats.Lv1Def5',
+      'UnitStats.Lv1Res5',
+      'UnitStats.HPGR3',
+      'UnitStats.AtkGR3',
+      'UnitStats.SpdGR3',
+      'UnitStats.DefGR3',
+      'UnitStats.ResGR3',
     ].join(','),
-    group_by: 'Heroes._pageName',
+    group_by: 'Units._pageName',
     join_on: [
-      'HeroStats._pageName=Heroes._pageName',
+      'UnitStats._pageName=Units._pageName',
     ].join(','),
   })
     .then(
@@ -201,35 +153,20 @@ async function fetchHeroStats() {
             Origin,
             WeaponType,
             MoveType,
-            RewardRarities,
-            SummonRarities,
             ReleaseDate,
-            PoolDate,
-
+            Lv1HP5: hp5,
+            Lv1Atk5: atk5,
+            Lv1Spd5: spd5,
+            Lv1Def5: def5,
+            Lv1Res5: res5,
             HPGR3: hpGrowths,
             AtkGR3: atkGrowths,
             SpdGR3: spdGrowths,
             DefGR3: defGrowths,
             ResGR3: resGrowths,
           }) => {
-            const enumerateRarities: (
-              rarityString: string,
-            ) => number[] = compose(
-              map(Number.parseInt),
-              filter(compose(not, equals(''))),
-              str => str.split(','),
-            );
-
-            // Compute the available rarities for this character.
-            const availableRarities = [
-              ...new Set([
-                ...enumerateRarities(RewardRarities),
-                ...enumerateRarities(SummonRarities),
-              ]),
-            ].sort();
-
-            const minRarity = availableRarities[0];
-            const maxRarity = availableRarities[availableRarities.length - 1];
+            const minRarity = 1;
+            const maxRarity = 5;
 
             const rarities =
               minRarity === undefined
@@ -243,8 +180,6 @@ async function fetchHeroStats() {
               new Date(timestamp).toISOString().substring(0, 10);
 
             const releaseDate = ReleaseDate ? formatDate(ReleaseDate) : 'N/A';
-
-            const poolDate = PoolDate ? formatDate(PoolDate) : 'N/A';
 
             const skills = map((skill) => ({
               name: skill.WikiName,
@@ -269,37 +204,20 @@ async function fetchHeroStats() {
 
             if (minRarity !== undefined) {
               range(minRarity, 6).forEach(rarity => {
-                stats['1'][rarity] = compose(
-                  map(value => Number.parseInt(value, 10)),
-                  pick(['hp', 'atk', 'spd', 'def', 'res']),
-                )(heroMaxStatsByNameAndRarity[`${FullName}-${rarity}`]);
+                stats['1'][rarity] = baseStatsForRarity(rarity, [
+                    Number.parseInt(hp5, 10),
+                    Number.parseInt(atk5, 10),
+                    Number.parseInt(spd5, 10),
+                    Number.parseInt(def5, 10),
+                    Number.parseInt(res5, 10),
+                ]);
 
                 stats['1'][rarity] = {
-                  hp: maxStatToBaseStat(
-                      rarity,
-                      stats['1'][rarity].hp,
-                      Number.parseInt(hpGrowths, 10) / 5
-                  ),
-                  atk: maxStatToBaseStat(
-                      rarity,
-                      stats['1'][rarity].atk,
-                      Number.parseInt(atkGrowths, 10) / 5
-                  ),
-                  spd: maxStatToBaseStat(
-                      rarity,
-                      stats['1'][rarity].spd,
-                      Number.parseInt(spdGrowths, 10) / 5
-                  ),
-                  def: maxStatToBaseStat(
-                      rarity,
-                      stats['1'][rarity].def,
-                      Number.parseInt(defGrowths, 10) / 5
-                  ),
-                  res: maxStatToBaseStat(
-                      rarity,
-                      stats['1'][rarity].res,
-                      Number.parseInt(resGrowths, 10) / 5
-                  ),
+                  hp: stats['1'][rarity][0],
+                  atk: stats['1'][rarity][1],
+                  spd: stats['1'][rarity][2],
+                  def: stats['1'][rarity][3],
+                  res: stats['1'][rarity][4],
                 };
 
                 stats['40'][rarity] = {
@@ -405,7 +323,6 @@ async function fetchHeroStats() {
               moveType: MoveType,
               rarities,
               releaseDate,
-              poolDate,
               assets: {
                 portrait: {
                   '75px': `${CDN_HOST}/75px-Icon_Portrait_${imageName}.png`,

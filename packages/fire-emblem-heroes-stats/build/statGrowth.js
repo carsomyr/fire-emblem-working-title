@@ -1,3 +1,5 @@
+import {ascend, clone, compose, descend, sortWith, pluck, prop, range, slice, zip, equals} from "ramda";
+
 /**
  * A table of actual stat growth with respect to growth points for each rarity.
  *
@@ -18,3 +20,28 @@ export const baseStatToMaxStat = (rarity, baseStat, growthPoints) =>
 
 export const maxStatToBaseStat = (rarity, maxStat, growthPoints) =>
   maxStat - growthPointTable[rarity][growthPoints];
+
+export const baseStatsForRarity = (rarity, baseStats5) => {
+  const difference = 5 - rarity;
+
+  const higherStatsPenalty = Math.floor(difference / 2);
+  const lowerStatsPenalty = Math.floor((difference + 1) / 2);
+
+  const sortedStatIndices = compose(
+      pluck(1),
+      sortWith([
+        descend(prop(0)),
+        ascend(prop(1)),
+      ]),
+  )(zip(slice(1, 5, baseStats5), range(1, 5)));
+
+  const rarityStats = clone(baseStats5);
+
+  rarityStats[0] -= lowerStatsPenalty; // The HP stat.
+  rarityStats[sortedStatIndices[0]] -= higherStatsPenalty; // The highest non-HP stat.
+  rarityStats[sortedStatIndices[1]] -= higherStatsPenalty; // The second highest non-HP stat.
+  rarityStats[sortedStatIndices[2]] -= lowerStatsPenalty; // The third highest non-HP stat.
+  rarityStats[sortedStatIndices[3]] -= lowerStatsPenalty; // The lowest non-HP stat.
+
+  return rarityStats;
+}
